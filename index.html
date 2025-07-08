@@ -957,23 +957,18 @@ function generatePdfRecetas() {
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: 'letter', lineHeight: 1.2 });
-
   const margin   = 40;
   const pageW    = doc.internal.pageSize.width;
   const pageH    = doc.internal.pageSize.height;
   const blockH   = (pageH - margin * 2 - 30) / 2;
-  const colWidths= [
-    pageW * 0.5 - margin * 1.5,
-    pageW * 0.2,
-    pageW * 0.3 - margin * 1.5
-  ];
   let recipeCount = 0;
   let pageNumber  = 1;
 
-  // definimos x para texto alineado a la derecha con un padding extra
-  const rightX = pageW - margin - 10;
-
+  // ---------------------------------------------------
+  // Dibuja cabecera y pie
+  // ---------------------------------------------------
   function drawHeaderFooter() {
+    // Cabecera
     doc.setFillColor(50, 50, 50);
     doc.rect(0, 0, pageW, 30, 'F');
     doc.setFontSize(14);
@@ -981,12 +976,10 @@ function generatePdfRecetas() {
     doc.setFont(undefined, 'bold');
     doc.text('Mi Recetario', margin, 20);
 
+    // Pie de página
     doc.setFontSize(10);
     doc.setTextColor(50);
     doc.setFont(undefined, 'normal');
-    doc.text('IAEgo', margin, pageH - 10);
-
-    doc.setTextColor(100);
     doc.text(
       `Página ${pageNumber}`,
       pageW - margin,
@@ -995,129 +988,157 @@ function generatePdfRecetas() {
     );
   }
 
+  // ---------------------------------------------------
+  // Dibuja marca de agua centrada dentro de un rectángulo (rotada 45°)
+  // ---------------------------------------------------
+  function drawWatermarkInBox(x, y, w, h) {
+    const text = 'IAEgo';
+    // guarda estado gráfico
+    if (doc.saveGraphicsState) doc.saveGraphicsState();
+    // opacidad muy baja (~5%)
+    if (doc.setGState && doc.GState) {
+      const gs = new doc.GState({ opacity: 0.05 });
+      doc.setGState(gs);
+    } else {
+      doc.setTextColor(230);
+    }
+
+    // tamaño y medición
+    const fontSize = 80;
+    doc.setFontSize(fontSize);
+    doc.setFont(undefined, 'bold');
+    const textWidth  = doc.getTextWidth(text);
+    const textHeight = fontSize; // en pts
+
+    // coordenadas de inicio de texto para centrar en la caja
+    const tx = x + (w - textWidth) / 2;
+    const ty = y + (h + textHeight) / 2;
+
+    // dibujar texto rotado
+    doc.text(
+      text,
+      tx,
+      ty,
+      { angle: 45 }
+    );
+
+    // restaura estado
+    if (doc.restoreGraphicsState) doc.restoreGraphicsState();
+    doc.setTextColor(0);
+  }
+
+  // ---------------------------------------------------
+  // Recorre las recetas
+  // ---------------------------------------------------
   recs.forEach((r, idx) => {
     if (recipeCount === 2) {
       doc.addPage();
       recipeCount = 0;
       pageNumber++;
     }
+
     drawHeaderFooter();
 
     const startY = margin + 30 + recipeCount * blockH;
-    let y = startY + 10;
+    const boxX   = margin;
+    const boxY   = startY;
+    const boxW   = pageW - margin * 2;
+    const boxH   = blockH;
 
-    // Contenedor
+    // 1) Contenedor
     doc.setDrawColor(180);
     doc.setLineWidth(0.8);
-    doc.rect(margin, startY, pageW - margin * 2, blockH);
+    doc.rect(boxX, boxY, boxW, boxH);
 
-    // Título
-    doc.setFillColor(220);
-    doc.rect(margin, y, pageW - margin * 2, 25, 'F');
+    // 2) Marca de agua
+    drawWatermarkInBox(boxX, boxY, boxW, boxH);
+
+    // 3) Título
+    let y = boxY + 10;
+    doc.setFillColor(220, 220, 220);
+    doc.rect(boxX, y, boxW, 25, 'F');
     doc.setFontSize(12);
     doc.setTextColor(0);
     doc.setFont(undefined, 'bold');
     const title = `${idx + 1}. ${r.nombre} (${r.porciones} porción${r.porciones > 1 ? 'es' : ''})`;
-    doc.text(title, margin + 5, y + 17);
+    doc.text(title, boxX + 5, y + 17);
     y += 35;
 
-    // Encabezados
+    // 4) Encabezado de tabla
     doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
+    const colWidths = [
+      boxW * 0.5 - 5,
+      boxW * 0.2,
+      boxW * 0.3 - 5
+    ];
     ['Ingrediente','Cant.','Costo'].forEach((h,i) => {
-      const x = margin + 5 + colWidths.slice(0,i).reduce((a,b)=>a+b,0);
-      doc.text(h, x, y);
+      const xh = boxX + 5 + colWidths.slice(0,i).reduce((a,b)=>a+b,0);
+      doc.text(h, xh, y);
     });
     y += 12;
-
-    // Línea
     doc.setDrawColor(200);
     doc.setLineWidth(0.5);
-    doc.line(margin + 5, y, pageW - margin - 5, y);
+    doc.line(boxX + 5, y, boxX + boxW - 5, y);
     y += 8;
 
-    // Filas
+    // 5) Filas de ingredientes
     r.items.forEach(it => {
-      const nombreIng = it.tipo === 'I'
+      const nombreIng = it.tipo==='I'
         ? ingredientes.find(x=>x.id===it.id).nombre
         : recetas.find(x=>x.id===it.id).nombre + ' (subreceta)';
       const cost = getItemCost(it).toFixed(2);
-      const cells = [
-        nombreIng,
-        `${it.cantidad} ${it.unidad}`,
-        `$${cost}`
-      ];
-      cells.forEach((txt,i) => {
-        const xPos = margin + 5 + colWidths.slice(0,i).reduce((a,b)=>a+b,0);
-        if (i === 0 && doc.getTextWidth(txt) > colWidths[0]) {
-          const lines = doc.splitTextToSize(txt, colWidths[0]);
-          lines.forEach((line, li) => doc.text(line, xPos, y + li * 12));
-          y += 12 * lines.length;
-        } else {
-          doc.text(txt, xPos, y);
-        }
-      });
+      [ nombreIng, `${it.cantidad} ${it.unidad}`, `$${cost}` ]
+        .forEach((txt,i) => {
+          const xi = boxX + 5 + colWidths.slice(0,i).reduce((a,b)=>a+b,0);
+          if (i===0 && doc.getTextWidth(txt)>colWidths[0]) {
+            const lines = doc.splitTextToSize(txt, colWidths[0]);
+            lines.forEach((line, li) => doc.text(line, xi, y + li*12));
+            y += 12 * lines.length;
+          } else {
+            doc.text(txt, xi, y);
+          }
+        });
       y += 12;
-      if (y > startY + blockH - 60) {
-        doc.addPage();
-        pageNumber++;
-        drawHeaderFooter();
-        y = margin + 40;
-      }
+      if (y > boxY + boxH - 60) return;
     });
 
-    // Total
-    const total = r.items.reduce((s,it)=>s + getItemCost(it), 0);
-    doc.setFont(undefined, 'bold');
+    // 6) Total
+    const total = r.items.reduce((s,it)=>s+getItemCost(it), 0);
+    doc.setFont(undefined,'bold');
     doc.setFontSize(12);
-    doc.text(`Total: $${total.toFixed(2)}`, margin + 5, y + 5);
+    doc.text(`Total: $${total.toFixed(2)}`, boxX + 5, y + 5);
 
-    // Precio Venta & Margen (alineados a la derecha con padding)
-        if (r.precioVenta != null) {
+    // 7) Precio venta & margen
+    if (r.precioVenta != null) {
       const mv = r.precioVenta - total;
-      const mp = (mv / total) * 100;
-      const pvpp = r.precioVenta / r.porciones;  // ← precio venta por porción
+      const mp = (mv/total)*100;
+      const pvpp = r.precioVenta/r.porciones;
+      const rightX = boxX + boxW - 10;
       doc.setFontSize(11);
-      doc.setFont(undefined, 'normal');
-      doc.text(
-        `Precio Venta: $${r.precioVenta.toFixed(2)}`,
-        rightX,
-        y + 20,
-        { align: 'right' }
-      );
-      doc.text(
-        `Precio/Vp Porción: $${pvpp.toFixed(2)}`,      // ← nueva línea
-        rightX,
-        y + 35,
-        { align: 'right' }
-      );
-      doc.text(
-        `Margen: $${mv.toFixed(2)} (${mp.toFixed(1)}%)`,
-        rightX,
-        y + 50,
-        { align: 'right' }
-      );
-      y += 70;  
-    }
- else {
+      doc.setFont(undefined,'normal');
+      doc.text(`Precio Venta: $${r.precioVenta.toFixed(2)}`, rightX, y+20, {align:'right'});
+      doc.text(`P/Porción: $${pvpp.toFixed(2)}`, rightX, y+35, {align:'right'});
+      doc.text(`Margen: $${mv.toFixed(2)} (${mp.toFixed(1)}%)`, rightX, y+50, {align:'right'});
+      y += 70;
+    } else {
       y += 25;
     }
 
-    // Método de preparación
-    const noteH = startY + blockH - y - 10;
+    // 8) Método de preparación
+    const noteH = boxY + boxH - y - 10;
     doc.setDrawColor(200);
     doc.setLineWidth(0.4);
-    doc.rect(margin + 5, y, pageW - margin * 2 - 10, noteH);
+    doc.rect(boxX + 5, y, boxW - 10, noteH);
     doc.setFontSize(11);
     doc.setTextColor(100);
-    doc.text('Método de preparación:', margin + 10, y + 15);
+    doc.text('Método de preparación:', boxX + 10, y + 15);
 
     recipeCount++;
   });
 
   // Abrir PDF
-  const blobUrl = doc.output('bloburl');
-  window.location.href = blobUrl;
+  window.location.href = doc.output('bloburl');
 }
 
     function getItemCost(it,vis=[]){

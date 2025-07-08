@@ -932,12 +932,15 @@ function confirmSaveRecipe() {
     }).join('\n');
     const costoTotal = r.items.reduce((s,it)=>s+getItemCost(it),0);
     let texto = `${r.nombre}\nRinde: ${r.porciones} porciones\n\n${lines}\n\n*Costo total:* $${costoTotal.toFixed(2)}`;
-    if(r.precioVenta!=null){
-      const margenPesos = r.precioVenta - costoTotal;
-      const margenPct = (margenPesos / costoTotal) * 100;
-      texto += `\n*Precio de venta:* $${r.precioVenta.toFixed(2)}` +
-               `\n*Margen:* $${margenPesos.toFixed(2)} (${margenPct.toFixed(1)}%)`;
-    }
+      if (r.precioVenta != null) {
+    const margenPesos = r.precioVenta - costoTotal;
+    const margenPct   = (margenPesos / costoTotal) * 100;
+    const precioPorPorcion = r.precioVenta / r.porciones;
+    texto += `\n*Precio de venta:* $${r.precioVenta.toFixed(2)}` +
+             `\n*Precio de venta por porción:* $${precioPorPorcion.toFixed(2)}` +
+             `\n*Margen:* $${margenPesos.toFixed(2)} (${margenPct.toFixed(1)}%)`;
+  }
+
     return texto;
   }).join('\n\n');
   navigator.clipboard.writeText(md)
@@ -1070,9 +1073,10 @@ function generatePdfRecetas() {
     doc.text(`Total: $${total.toFixed(2)}`, margin + 5, y + 5);
 
     // Precio Venta & Margen (alineados a la derecha con padding)
-    if (r.precioVenta != null) {
+        if (r.precioVenta != null) {
       const mv = r.precioVenta - total;
       const mp = (mv / total) * 100;
+      const pvpp = r.precioVenta / r.porciones;  // ← precio venta por porción
       doc.setFontSize(11);
       doc.setFont(undefined, 'normal');
       doc.text(
@@ -1082,13 +1086,20 @@ function generatePdfRecetas() {
         { align: 'right' }
       );
       doc.text(
-        `Margen: $${mv.toFixed(2)} (${mp.toFixed(1)}%)`,
+        `Precio/Vp Porción: $${pvpp.toFixed(2)}`,      // ← nueva línea
         rightX,
         y + 35,
         { align: 'right' }
       );
-      y += 50;
-    } else {
+      doc.text(
+        `Margen: $${mv.toFixed(2)} (${mp.toFixed(1)}%)`,
+        rightX,
+        y + 50,
+        { align: 'right' }
+      );
+      y += 70;  
+    }
+ else {
       y += 25;
     }
 
